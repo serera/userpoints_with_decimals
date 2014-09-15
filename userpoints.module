@@ -25,6 +25,10 @@ define('USERPOINTS_CATEGORY_DEFAULT_VID', 'userpoints_category_default_vid');
 define('USERPOINTS_CATEGORY_DEFAULT_TID', 'userpoints_category_default_tid');
 define('USERPOINTS_CATEGORY_PROFILE_DISPLAY_TID', 'userpoints_category_profile_display_tid');
 define('USERPOINTS_TRANSACTION_TIMESTAMP', 'userpoints_transaction_timestamp');
+/**
+ * The USERPOINTS_CUSTOM_VAR_ACCURACY used to set accuracy of toDecimal() function
+ */
+define('USERPOINTS_CUSTOM_VAR_ACCURACY', 10);
 
 /**
  * Returns an array of common translation placeholders.
