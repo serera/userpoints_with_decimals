@@ -49,7 +49,12 @@ function userpoints_list_transactions($form, &$form_state, $account = NULL, $tid
   $unapproved_query = db_select('userpoints_txn', 'p')
     ->condition('uid', $account->uid)
     ->condition('status', UserpointsTransaction::STATUS_PENDING);
-  $unapproved_query->addExpression('SUM(points)');
+  $unapproved_query->leftJoin('field_data_points', 'fdp', 'p.txn_id = fdp.entity_id');
+  // It assumes that denominator is the same and equals 100 for all transactions.
+  // Though it is true for each of userpoints use cases, it is not restricted
+  // anywhere - so it is worth mentioning.
+  $unapproved_query->condition('fdp.points_denominator', 100);
+  $unapproved_query->addExpression('SUM(fdp.points_numerator)');
 
   $values = userpoints_filter_parse_input($form_state, $tid);
   $active_category = userpoints_filter_query($query, $values);
@@ -104,6 +109,8 @@ function userpoints_list_transactions($form, &$form_state, $account = NULL, $tid
   $pending = (int)$unapproved_query
     ->execute()
     ->fetchField();
+  // Convert to string using Fraction to avoid rounding errors.
+  $pending = fraction($pending, 100)->toDecimal();
 
   $approved = userpoints_get_current_points($account->uid, isset($values['tid']) ? $values['tid'] : 'all');
 
@@ -228,7 +235,7 @@ function userpoints_view_transaction($transaction) {
     UserpointsTransaction::STATUS_DECLINED => 'declined',
     UserpointsTransaction::STATUS_PENDING => 'pending',
   );
-  $classes = 'userpoints-view-' . $css_stati[$transaction->status] . ' userpoints-view-category-' . $transaction->tid . ' userpoints-view-' . ($transaction->points > 0 ? 'positive' : 'negative');
+  $classes = 'userpoints-view-' . $css_stati[$transaction->status] . ' userpoints-view-category-' . $transaction->tid . ' userpoints-view-' . ($transaction->getPoints() > 0 ? 'positive' : 'negative');
   if (!empty($transaction->expirydate)) {
     $classes .= $transaction->expired ? ' userpoints-view-expired' : ' userpoints-view-not-expired';
   }
@@ -256,7 +263,7 @@ function userpoints_view_transaction($transaction) {
   $content['details']['points'] = array(
     '#theme' => 'userpoints_view_item',
     '#title' => t('!Points', userpoints_translation()),
-    '#value' => $transaction->points,
+    '#value' => $transaction->getPoints(),
     '#weight' => 10,
     '#attributes' => array('class' => array('userpoints-item-points')),
   );

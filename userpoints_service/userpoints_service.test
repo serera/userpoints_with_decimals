@@ -101,8 +101,8 @@ class UserpointsServiceTestCase extends ServicesWebTestCase {
 
     $result = $this->servicesGet($this->endpoint->path . '/userpoints');
     $index = $result['body'];
-    $this->assertEqual($index[0]->points, userpoints_get_current_points($index[0]->uid));
-    $this->assertEqual($index[1]->points, userpoints_get_current_points($index[1]->uid));
+    $this->assertEqual($index[0]->getPoints(), userpoints_get_current_points($index[0]->uid));
+    $this->assertEqual($index[1]->getPoints(), userpoints_get_current_points($index[1]->uid));
     $this->assertEqual($index[0]->max_points, userpoints_get_max_points($index[0]->uid));
     $this->assertEqual($index[1]->max_points, userpoints_get_max_points($index[1]->uid));
   }

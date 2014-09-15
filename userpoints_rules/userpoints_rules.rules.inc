@@ -25,7 +25,7 @@ function userpoints_rules_rules_action_info() {
           'description' => t('The user that will receive the !points', userpoints_translation()),
         ),
         'points' => array(
-          'type' => 'integer',
+          'type' => 'text',
           'label' => t('!Points', userpoints_translation()),
           'description' => t('Amount of !points to give or take.', userpoints_translation()),
         ),
@@ -96,7 +96,7 @@ function userpoints_rules_rules_action_info() {
       ),
       'new variables' => array(
         'loaded_points' => array(
-          'type' => 'integer',
+          'type' => 'text',
           'label' => t('Number of !points in the specified category.', userpoints_translation()),
         ),
       ),

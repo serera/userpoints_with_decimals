@@ -96,29 +96,29 @@ function userpoints_admin_txn($form, &$form_state, $mode, $txn = NULL) {
   }
 
   $form['txn_user'] = array(
-      '#type' => 'textfield',
-      '#title' => t('User Name'),
-      '#size' => 30,
-      '#maxlength' => 60,
-      '#default_value' => isset($txn_user) ? $txn_user->name : '',
-      '#autocomplete_path' => $mode == 'edit' ? NULL : 'user/autocomplete',
-      '#description' => t('The name of the user who should gain or lose !points.', userpoints_translation()),
-      '#required' => TRUE,
-      '#weight' => -20,
-      // The user field can never be changed.
-      '#disabled' => $mode == 'edit',
+    '#type' => 'textfield',
+    '#title' => t('User Name'),
+    '#size' => 30,
+    '#maxlength' => 60,
+    '#default_value' => isset($txn_user) ? $txn_user->name : '',
+    '#autocomplete_path' => $mode == 'edit' ? NULL : 'user/autocomplete',
+    '#description' => t('The name of the user who should gain or lose !points.', userpoints_translation()),
+    '#required' => TRUE,
+    '#weight' => -20,
+    // The user field can never be changed.
+    '#disabled' => $mode == 'edit',
   );
 
   $form['points'] = array(
-      '#type' => 'textfield',
-      '#title' => t('Points'),
-      '#size' => 10,
-      '#maxlength' => 10,
-      '#default_value' => $txn ? $txn->points : 0,
-      '#description' => t('The number of !points to add or subtract.  For example, enter %positive to add !points or %negative to deduct !points.', array('%positive' => 25, '%negative' => -25) + userpoints_translation()),
-      '#required' => TRUE,
-      '#weight' => -15,
-      '#disabled' => $disable,
+    '#type' => 'textfield',
+    '#title' => t('Points'),
+    '#size' => 10,
+    '#maxlength' => 10,
+    '#default_value' => $txn ? $txn->getPoints() : 0,
+    '#description' => t('The number of !points to add or subtract.  For example, enter %positive to add !points or %negative to deduct !points.', array('%positive' => 25, '%negative' => -25) + userpoints_translation()),
+    '#required' => TRUE,
+    '#weight' => -15,
+    '#disabled' => $disable,
   );
 
   if (module_exists('taxonomy')) {
@@ -384,7 +384,7 @@ function userpoints_admin_txn_validate($form, &$form_state) {
     form_set_value($form['txn_user'], $txn_user, $form_state);
   }
 
-  if ((int)$form_state['values']['points'] == 0) {
+  if ($form_state['values']['points'] == 0) {
     form_set_error('points', t('Amount of !points must be a positive or negative number.', userpoints_translation()));
   }
 
@@ -470,7 +470,10 @@ function userpoints_admin_txn_submit($form, &$form_state) {
   // Attach field information directly to the userpoints transaction object.
   foreach (field_info_instances('userpoints_transaction', $transaction->type) as $instance) {
     $field_name = $instance['field_name'];
-    $transaction->$field_name = $form_state['values'][$field_name];
+    // Points is Fraction field, skip it as it should be set by setter method.
+    if ($field_name != 'points') {
+      $transaction->$field_name = $form_state['values'][$field_name];
+    }
   }
 
   field_attach_submit('userpoints_transaction', $transaction, $form, $form_state);
@@ -663,7 +666,7 @@ function userpoints_confirm_approve($form, $form_state, $operation, $transaction
 
   if ($operation == 'approve') {
     $question = t('Approve transaction');
-    $description = format_plural($transaction->points, 'Do you want to approve @count !point for !user in the %category category?', 'Do you want to approve @count !points for !user in the %category category?', $arguments);
+    $description = format_plural($transaction->getPoints(), 'Do you want to approve @count !point for !user in the %category category?', 'Do you want to approve @count !points for !user in the %category category?', $arguments);
     $form['operation'] = array(
       '#type' => 'value',
       '#value' => UserpointsTransaction::STATUS_APPROVED,
@@ -671,7 +674,7 @@ function userpoints_confirm_approve($form, $form_state, $operation, $transaction
   }
   else {
     $question = t('Decline transaction');
-    $description = format_plural($transaction->points, 'Do you want to decline @count !point for !user in the %category category?', 'Do you want to decline @count !points for !user in the %category category?', $arguments);
+    $description = format_plural($transaction->getPoints(), 'Do you want to decline @count !point for !user in the %category category?', 'Do you want to decline @count !points for !user in the %category category?', $arguments);
     $form['operation'] = array(
       '#type' => 'value',
       '#value' => UserpointsTransaction::STATUS_DECLINED,

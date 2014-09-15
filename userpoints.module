@@ -616,7 +616,7 @@ function userpoints_token_info() {
  *   Term ID to get points for, or 'all'.
  *
  * @return
- *   Number of current points in that user's account.
+ *   String with number of current points in that user's account.
  *
  * @ingroup userpoints_api
  */
@@ -632,10 +632,10 @@ function userpoints_get_current_points($uid = NULL, $tid = NULL) {
   }
   if (!isset($points[$uid][$tid])) {
     if ($tid === 'all') {
-      $points[$uid][$tid] = (int) db_query('SELECT points FROM {userpoints_total} WHERE uid = :uid', array(':uid' => $uid))->fetchField();
+      $points[$uid][$tid] = (string) db_query('SELECT points FROM {userpoints_total} WHERE uid = :uid', array(':uid' => $uid))->fetchField();
     }
     else {
-      $points[$uid][$tid] = (int) db_query('SELECT points FROM {userpoints} WHERE uid = :uid AND tid = :tid', array(':uid' => $uid, ':tid' => $tid))->fetchField();
+      $points[$uid][$tid] = (string) db_query('SELECT points FROM {userpoints} WHERE uid = :uid AND tid = :tid', array(':uid' => $uid, ':tid' => $tid))->fetchField();
     }
   }
   return $points[$uid][$tid];
@@ -718,7 +718,8 @@ function userpoints_get_max_points($uid = NULL, $tid = NULL) {
  *   custom, translatable, optionally dynamic reason for this transaction in
  *   transaction listings. See hook_userpoints_info().
  * @param $points
- *   A positive or negative point amount that should be assigned to the user.
+ *   A string representing a positive or negative point amount that should be
+ *   assigned to the user. Is string to avoid rounding errors.
  * @param $type
  *   The userpoints transaction bundle to create. Optional, defaults to the
  *   default bundle if it exists.
@@ -1155,7 +1156,8 @@ function userpoints_expire_transactions() {
     ));
     $description = strtr(variable_get(USERPOINTS_EXPIRY_DESCRIPTION, NULL), $arguments);
 
-    userpoints_grant_points('expiry', -$transaction->points, $transaction->type, $transaction->uid)
+    // Points are strings to avoid rounding errors.
+    userpoints_grant_points('expiry', '-' . $transaction->getPoints(), $transaction->type, $transaction->uid)
       ->setDescription($description)
       ->setParent($transaction->txn_id)
       ->setTid($transaction->tid)
@@ -1489,7 +1491,8 @@ function userpoints_transaction_property_set($data, $name, $value) {
  */
 function userpoints_transaction_get_points_absolute($userpoints_transaction, array $options, $name) {
   if (is_object($userpoints_transaction)) {
-    return abs($userpoints_transaction->points);
+    // Manipulate with string to avoid rounding errors.
+    return str_replace('-', '', $userpoints_transaction->getPoints());
   }
   return NULL;
 }

@@ -348,7 +348,7 @@ class UserpointsTransaction extends Entity {
    * or negative amount but not 0.
    *
    * @param $points
-   *   The points as an integer.
+   *   The points as a fraction array.
    *
    * @return UserpointsTransaction
    */
@@ -361,7 +361,13 @@ class UserpointsTransaction extends Entity {
       throw new UserpointsInvalidArgumentException();
     }
 
-    $this->points = $points;
+    // Prepare data to be saved as a field.
+    $field_language = field_language($this->entityType, $this, 'points');
+    $fraction = fraction_from_decimal($points);
+    $this->points[$field_language][0] = array(
+      'numerator' => $fraction->getNumerator(),
+      'denominator' => $fraction->getDenominator(),
+    );
     return $this;
   }
 
@@ -614,12 +620,18 @@ class UserpointsTransaction extends Entity {
    * The amount of points of this transaction.
    *
    * @return
-   *   Points as an integer.
+   *   Points as a string representing decimal.
    *
    * @see UserpointsTransaction::setPoints()
    */
   function getPoints() {
-    return $this->points;
+    $points = '0';
+    $field_language = field_language($this->entityType, $this, 'points');
+    if (!empty($this->points[$field_language][0]['numerator']) && !empty($this->points[$field_language][0]['denominator'])) {
+      $fraction = fraction($this->points[$field_language][0]['numerator'], $this->points[$field_language][0]['denominator']);
+      $points = $fraction->toDecimal(5, TRUE);
+    }
+    return $points;
   }
 
   /**
@@ -1225,7 +1237,7 @@ class UserpointsTransactionController extends EntityAPIController {
 
     // Update totals if the transaction is approved and not expired.
     if ($entity->isApproved() && !$entity->isExpired()) {
-      $this->updateTotals($entity->tid, $entity->uid, $entity->points);
+      $this->updateTotals($entity->tid, $entity->uid, $entity->getPoints());
     }
 
     // Display a message unless disabled or no message exists.
@@ -1265,7 +1277,7 @@ class UserpointsTransactionController extends EntityAPIController {
     // Always update the time stamp and the total points.
     $total = array(
       'last_update' => REQUEST_TIME,
-      'points' => $points + userpoints_get_current_points($uid, $tid),
+      'points' => fraction_from_decimal($points)->add(fraction_from_decimal(userpoints_get_current_points($uid, $tid)))->toDecimal(5,TRUE),
     );
     // Update the total max points if necessary.
     $max_points_total = userpoints_get_max_points($uid, $tid);
@@ -1322,7 +1334,8 @@ class UserpointsTransactionMetadataController extends EntityDefaultMetadataContr
     $properties['points_abs'] = array(
       'label' => t('!Points absolute', userpoints_translation()),
       'description' => t('The absolute (positive) amount of !points of this transaction.', userpoints_translation()),
-      'type' => 'integer',
+      // Is string to avoid rounding errors.
+      'type' => 'text',
       'getter callback' => 'userpoints_transaction_get_points_absolute',
     );
 

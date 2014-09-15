@@ -1,0 +1,702 @@
+From dd6ebc93440aabfd3e9c15645679ee13eb57ec01 Mon Sep 17 00:00:00 2001
+From: PatchRanger <Staratel@1209848.no-reply.drupal.org>
+Date: Mon, 2 Sep 2013 23:12:33 +0700
+Subject: [PATCH] Issue #1165256 by MasterChief, Berdir, IWasBornToWin,
+ jredding, edufol, michaek, PatchRanger: Allow points with
+ decimal places
+
+---
+ userpoints.admin.inc                        |   51 +++++++++---------
+ userpoints.info                             |    1 +
+ userpoints.install                          |   73 ++++++++++++++++++++++---
+ userpoints.module                           |   15 +++---
+ userpoints.pages.inc                        |   13 +++--
+ userpoints.test                             |   76 +++++++++++++++++----------
+ userpoints.transaction.inc                  |   27 +++++++---
+ userpoints_rules/userpoints_rules.info      |    1 -
+ userpoints_rules/userpoints_rules.rules.inc |    4 +-
+ userpoints_service/userpoints_service.test  |    4 +-
+ 10 files changed, 184 insertions(+), 81 deletions(-)
+
+diff --git a/userpoints.admin.inc b/userpoints.admin.inc
+index 7dd09b4..923cc1d 100644
+--- a/userpoints.admin.inc
++++ b/userpoints.admin.inc
+@@ -96,29 +96,29 @@ function userpoints_admin_txn($form, &$form_state, $mode, $txn = NULL) {
+   }
+ 
+   $form['txn_user'] = array(
+-      '#type' => 'textfield',
+-      '#title' => t('User Name'),
+-      '#size' => 30,
+-      '#maxlength' => 60,
+-      '#default_value' => isset($txn_user) ? $txn_user->name : '',
+-      '#autocomplete_path' => $mode == 'edit' ? NULL : 'user/autocomplete',
+-      '#description' => t('The name of the user who should gain or lose !points.', userpoints_translation()),
+-      '#required' => TRUE,
+-      '#weight' => -20,
+-      // The user field can never be changed.
+-      '#disabled' => $mode == 'edit',
++    '#type' => 'textfield',
++    '#title' => t('User Name'),
++    '#size' => 30,
++    '#maxlength' => 60,
++    '#default_value' => isset($txn_user) ? $txn_user->name : '',
++    '#autocomplete_path' => $mode == 'edit' ? NULL : 'user/autocomplete',
++    '#description' => t('The name of the user who should gain or lose !points.', userpoints_translation()),
++    '#required' => TRUE,
++    '#weight' => -20,
++    // The user field can never be changed.
++    '#disabled' => $mode == 'edit',
+   );
+ 
+   $form['points'] = array(
+-      '#type' => 'textfield',
+-      '#title' => t('Points'),
+-      '#size' => 10,
+-      '#maxlength' => 10,
+-      '#default_value' => $txn ? $txn->points : 0,
+-      '#description' => t('The number of !points to add or subtract.  For example, enter %positive to add !points or %negative to deduct !points.', array('%positive' => 25, '%negative' => -25) + userpoints_translation()),
+-      '#required' => TRUE,
+-      '#weight' => -15,
+-      '#disabled' => $disable,
++    '#type' => 'textfield',
++    '#title' => t('Points'),
++    '#size' => 10,
++    '#maxlength' => 10,
++    '#default_value' => $txn ? $txn->getPoints() : 0,
++    '#description' => t('The number of !points to add or subtract.  For example, enter %positive to add !points or %negative to deduct !points.', array('%positive' => 25, '%negative' => -25) + userpoints_translation()),
++    '#required' => TRUE,
++    '#weight' => -15,
++    '#disabled' => $disable,
+   );
+ 
+   if (module_exists('taxonomy')) {
+@@ -384,7 +384,7 @@ function userpoints_admin_txn_validate($form, &$form_state) {
+     form_set_value($form['txn_user'], $txn_user, $form_state);
+   }
+ 
+-  if ((int)$form_state['values']['points'] == 0) {
++  if ($form_state['values']['points'] == 0) {
+     form_set_error('points', t('Amount of !points must be a positive or negative number.', userpoints_translation()));
+   }
+ 
+@@ -470,7 +470,10 @@ function userpoints_admin_txn_submit($form, &$form_state) {
+   // Attach field information directly to the userpoints transaction object.
+   foreach (field_info_instances('userpoints_transaction', $transaction->type) as $instance) {
+     $field_name = $instance['field_name'];
+-    $transaction->$field_name = $form_state['values'][$field_name];
++    // Points is Fraction field, skip it as it should be set by setter method.
++    if ($field_name != 'points') {
++      $transaction->$field_name = $form_state['values'][$field_name];
++    }
+   }
+ 
+   field_attach_submit('userpoints_transaction', $transaction, $form, $form_state);
+@@ -663,7 +666,7 @@ function userpoints_confirm_approve($form, $form_state, $operation, $transaction
+ 
+   if ($operation == 'approve') {
+     $question = t('Approve transaction');
+-    $description = format_plural($transaction->points, 'Do you want to approve @count !point for !user in the %category category?', 'Do you want to approve @count !points for !user in the %category category?', $arguments);
++    $description = format_plural($transaction->getPoints(), 'Do you want to approve @count !point for !user in the %category category?', 'Do you want to approve @count !points for !user in the %category category?', $arguments);
+     $form['operation'] = array(
+       '#type' => 'value',
+       '#value' => UserpointsTransaction::STATUS_APPROVED,
+@@ -671,7 +674,7 @@ function userpoints_confirm_approve($form, $form_state, $operation, $transaction
+   }
+   else {
+     $question = t('Decline transaction');
+-    $description = format_plural($transaction->points, 'Do you want to decline @count !point for !user in the %category category?', 'Do you want to decline @count !points for !user in the %category category?', $arguments);
++    $description = format_plural($transaction->getPoints(), 'Do you want to decline @count !point for !user in the %category category?', 'Do you want to decline @count !points for !user in the %category category?', $arguments);
+     $form['operation'] = array(
+       '#type' => 'value',
+       '#value' => UserpointsTransaction::STATUS_DECLINED,
+diff --git a/userpoints.info b/userpoints.info
+index 9a9331c..1f46c03 100644
+--- a/userpoints.info
++++ b/userpoints.info
+@@ -9,3 +9,4 @@ files[]=views/userpoints_views_handler_filter_category.inc
+ files[]=views/userpoints_views_handler_argument_category.inc
+ configure = admin/config/people/userpoints/settings
+ dependencies[]=entity
++dependencies[]=fraction
+diff --git a/userpoints.install b/userpoints.install
+index 842f664..1f6580e 100644
+--- a/userpoints.install
++++ b/userpoints.install
+@@ -26,13 +26,17 @@ function userpoints_schema() {
+       ),
+       'points' => array(
+         'description' => 'Current Points',
+-        'type' => 'int',
++        // Is stored as string in order to avoid rounding errors.
++        'type' => 'varchar',
++        'length' => 100,
+         'not null' => TRUE,
+         'default' => 0,
+       ),
+       'max_points' => array(
+         'description' => 'Out of a maximum points',
+-        'type' => 'int',
++        // Is stored as string in order to avoid rounding errors.
++        'type' => 'varchar',
++        'length' => 100,
+         'not null' => TRUE,
+         'default' => 0,
+       ),
+@@ -69,13 +73,17 @@ function userpoints_schema() {
+       ),
+       'points' => array(
+         'description' => 'Current Points',
+-        'type' => 'int',
++        // Is stored as string in order to avoid rounding errors.
++        'type' => 'varchar',
++        'length' => 100,
+         'not null' => TRUE,
+         'default' => 0,
+       ),
+       'max_points' => array(
+         'description' => 'Out of a maximum points',
+-        'type' => 'int',
++        // Is stored as string in order to avoid rounding errors.
++        'type' => 'varchar',
++        'length' => 100,
+         'not null' => TRUE,
+         'default' => 0,
+       ),
+@@ -119,12 +127,14 @@ function userpoints_schema() {
+         'not null' => TRUE,
+         'default' => 0,
+       ),
++      /* Points are stored using Fraction field.
+       'points' => array(
+         'description' => 'Points',
+         'type' => 'int',
+         'not null' => TRUE,
+         'default' => 0,
+       ),
++       */
+       'time_stamp' => array(
+         'description' => 'Timestamp',
+         'type' => 'int',
+@@ -194,7 +204,6 @@ function userpoints_schema() {
+         'type' => 'varchar',
+         'length' => 48,
+       ),
+-
+     ),
+     'primary key' => array('txn_id'),
+     'indexes' => array(
+@@ -205,8 +214,7 @@ function userpoints_schema() {
+       'changed' => array('changed'),
+       'uid' => array('uid'),
+       'approver_uid' => array('approver_uid'),
+-      'points' => array('points'),
+-    )
++    ),
+   );
+ 
+   $schema['userpoints_txn_type'] = array(
+@@ -273,6 +281,21 @@ function userpoints_install() {
+   catch (Exception $e) {
+     watchdog_exception('userpoints', $e, 'Failed to create default bundle.', array(), WATCHDOG_CRITICAL);
+   }
++
++  // Add fraction field to make it possible to work with decimals w/o rounding errors.
++  $instances_default = _userpoints_default_instances();
++  foreach (_userpoints_default_fields() as $field_name => $field_default) {
++    $field = field_info_field($field_name);
++    if (empty($field)) {
++      field_create_field($field_default);
++    }
++    if (!empty($instances_default[$field_name])) {
++      $instance = field_info_instance('userpoints_transaction', $field_name, 'userpoints');
++      if (empty($instance)) {
++        field_create_instance($instances_default[$field_name]);
++      }
++    }
++  }
+ }
+ 
+ /**
+@@ -289,6 +312,42 @@ function userpoints_uninstall() {
+   }
+ 
+   variable_del('userpoints_default_bundle', 'userpoints');
++
++  // Delete fraction field and instance.
++  foreach (_userpoints_default_instances() as $instance) {
++    field_delete_instance($instance);
++  }
++  foreach (_userpoints_default_fields() as $field) {
++    field_delete_field($field['field_name']);
++  }
++}
++
++function _userpoints_default_fields() {
++  return array(
++    'points' => array(
++      'field_name' => 'points',
++      'type' => 'fraction',
++      'cardinality' => 1,
++      'entity_types' => array('userpoints_transaction'),
++      'translatable' => FALSE,
++    ),
++  );
++}
++
++function _userpoints_default_instances() {
++  return array(
++    'points' => array(
++      'field_name' => 'points',
++      'label' => t('Points'),
++      'type' => 'fraction',
++      'widget' => array(
++        'type' => 'fraction_decimal',
++      ),
++      'display' => array(),
++      'entity_type' => 'userpoints_transaction',
++      'bundle' => 'userpoints',
++    ),
++  );
+ }
+ 
+ /**
+diff --git a/userpoints.module b/userpoints.module
+index ff4e274..006170b 100644
+--- a/userpoints.module
++++ b/userpoints.module
+@@ -616,7 +616,7 @@ function userpoints_token_info() {
+  *   Term ID to get points for, or 'all'.
+  *
+  * @return
+- *   Number of current points in that user's account.
++ *   String with number of current points in that user's account.
+  *
+  * @ingroup userpoints_api
+  */
+@@ -632,10 +632,10 @@ function userpoints_get_current_points($uid = NULL, $tid = NULL) {
+   }
+   if (!isset($points[$uid][$tid])) {
+     if ($tid === 'all') {
+-      $points[$uid][$tid] = (int) db_query('SELECT points FROM {userpoints_total} WHERE uid = :uid', array(':uid' => $uid))->fetchField();
++      $points[$uid][$tid] = (string) db_query('SELECT points FROM {userpoints_total} WHERE uid = :uid', array(':uid' => $uid))->fetchField();
+     }
+     else {
+-      $points[$uid][$tid] = (int) db_query('SELECT points FROM {userpoints} WHERE uid = :uid AND tid = :tid', array(':uid' => $uid, ':tid' => $tid))->fetchField();
++      $points[$uid][$tid] = (string) db_query('SELECT points FROM {userpoints} WHERE uid = :uid AND tid = :tid', array(':uid' => $uid, ':tid' => $tid))->fetchField();
+     }
+   }
+   return $points[$uid][$tid];
+@@ -718,7 +718,8 @@ function userpoints_get_max_points($uid = NULL, $tid = NULL) {
+  *   custom, translatable, optionally dynamic reason for this transaction in
+  *   transaction listings. See hook_userpoints_info().
+  * @param $points
+- *   A positive or negative point amount that should be assigned to the user.
++ *   A string representing a positive or negative point amount that should be
++ *   assigned to the user. Is string to avoid rounding errors.
+  * @param $type
+  *   The userpoints transaction bundle to create. Optional, defaults to the
+  *   default bundle if it exists.
+@@ -1155,7 +1156,8 @@ function userpoints_expire_transactions() {
+     ));
+     $description = strtr(variable_get(USERPOINTS_EXPIRY_DESCRIPTION, NULL), $arguments);
+ 
+-    userpoints_grant_points('expiry', -$transaction->points, $transaction->type, $transaction->uid)
++    // Points are strings to avoid rounding errors.
++    userpoints_grant_points('expiry', '-' . $transaction->getPoints(), $transaction->type, $transaction->uid)
+       ->setDescription($description)
+       ->setParent($transaction->txn_id)
+       ->setTid($transaction->tid)
+@@ -1489,7 +1491,8 @@ function userpoints_transaction_property_set($data, $name, $value) {
+  */
+ function userpoints_transaction_get_points_absolute($userpoints_transaction, array $options, $name) {
+   if (is_object($userpoints_transaction)) {
+-    return abs($userpoints_transaction->points);
++    // Manipulate with string to avoid rounding errors.
++    return str_replace('-', '', $userpoints_transaction->getPoints());
+   }
+   return NULL;
+ }
+diff --git a/userpoints.pages.inc b/userpoints.pages.inc
+index 9a35c9a..8cb860e 100644
+--- a/userpoints.pages.inc
++++ b/userpoints.pages.inc
+@@ -49,7 +49,12 @@ function userpoints_list_transactions($form, &$form_state, $account = NULL, $tid
+   $unapproved_query = db_select('userpoints_txn', 'p')
+     ->condition('uid', $account->uid)
+     ->condition('status', UserpointsTransaction::STATUS_PENDING);
+-  $unapproved_query->addExpression('SUM(points)');
++  $unapproved_query->leftJoin('field_data_points', 'fdp', 'p.txn_id = fdp.entity_id');
++  // It assumes that denominator is the same and equals 100 for all transactions.
++  // Though it is true for each of userpoints use cases, it is not restricted
++  // anywhere - so it is worth mentioning.
++  $unapproved_query->condition('fdp.points_denominator', 100);
++  $unapproved_query->addExpression('SUM(fdp.points_numerator)');
+ 
+   $values = userpoints_filter_parse_input($form_state, $tid);
+   $active_category = userpoints_filter_query($query, $values);
+@@ -104,6 +109,8 @@ function userpoints_list_transactions($form, &$form_state, $account = NULL, $tid
+   $pending = (int)$unapproved_query
+     ->execute()
+     ->fetchField();
++  // Convert to string using Fraction to avoid rounding errors.
++  $pending = fraction($pending, 100)->toDecimal();
+ 
+   $approved = userpoints_get_current_points($account->uid, isset($values['tid']) ? $values['tid'] : 'all');
+ 
+@@ -228,7 +235,7 @@ function userpoints_view_transaction($transaction) {
+     UserpointsTransaction::STATUS_DECLINED => 'declined',
+     UserpointsTransaction::STATUS_PENDING => 'pending',
+   );
+-  $classes = 'userpoints-view-' . $css_stati[$transaction->status] . ' userpoints-view-category-' . $transaction->tid . ' userpoints-view-' . ($transaction->points > 0 ? 'positive' : 'negative');
++  $classes = 'userpoints-view-' . $css_stati[$transaction->status] . ' userpoints-view-category-' . $transaction->tid . ' userpoints-view-' . ($transaction->getPoints() > 0 ? 'positive' : 'negative');
+   if (!empty($transaction->expirydate)) {
+     $classes .= $transaction->expired ? ' userpoints-view-expired' : ' userpoints-view-not-expired';
+   }
+@@ -256,7 +263,7 @@ function userpoints_view_transaction($transaction) {
+   $content['details']['points'] = array(
+     '#theme' => 'userpoints_view_item',
+     '#title' => t('!Points', userpoints_translation()),
+-    '#value' => $transaction->points,
++    '#value' => $transaction->getPoints(),
+     '#weight' => 10,
+     '#attributes' => array('class' => array('userpoints-item-points')),
+   );
+diff --git a/userpoints.test b/userpoints.test
+index 3acb29c..55a80c2 100644
+--- a/userpoints.test
++++ b/userpoints.test
+@@ -14,10 +14,18 @@
+ class UserpointsBaseTestCase extends DrupalWebTestCase {
+ 
+   /**
++   * Implements setUp().
++   */
++  public function setUp(array $modules = array()) {
++    parent::setUp(array_merge($modules, array('userpoints')));
++  }
++
++  /**
+    * Add points through the admin form.
+    *
+    * @param $points
+-   *   Amount of points to add.
++   *   A string representing an amount of points to add. Is string to avoid
++   *   rounding errors.
+    * @param $user
+    *   User object for which to grant points for.
+    * @param $total
+@@ -51,9 +59,10 @@ class UserpointsBaseTestCase extends DrupalWebTestCase {
+    * @param $uid
+    *   User uid for the user that needs to be tested.
+    * @param $current
+-   *   The amount of points the user is currently supposed to have.
++   *   A string representing the amount of points the user is currently supposed
++   *   to have.
+    * @param $max
+-   *   The amount of max points of the user. Only tested if not NULL.
++   *   A string with the amount of max points of the user. Only tested if not NULL.
+    * @param $tid
+    *   The category that needs to be checked. Default is used is none is
+    *   provided.
+@@ -102,7 +111,7 @@ class UserpointsAPITestCase extends UserpointsBaseTestCase {
+    * Install userpoints module and create users.
+    */
+   function setUp() {
+-    parent::setUp('userpoints');
++    parent::setUp();
+ 
+     // Create an administrator account.
+     $this->admin_user = $this->drupalCreateUser(array('administer userpoints'));
+@@ -127,17 +136,26 @@ class UserpointsAPITestCase extends UserpointsBaseTestCase {
+    */
+   function getTxnPoints($uid, $points = NULL, $sum = FALSE) {
+     $query = db_select('userpoints_txn', 'p');
++    $query->leftJoin('field_data_points', 'fdp', 'p.txn_id = fdp.entity_id');
++    // It assumes that denominator is the same and equals 100 for all transactions.
++    // Though it is true for each of userpoints use cases, it is not restricted
++    // anywhere - so it is worth mentioning.
++    $query->condition('fdp.points_denominator', 100);
+     if ($sum) {
+-      $query->addExpression('SUM(points)');
++      $query->addExpression('SUM(fdp.points_numerator)');
+     }
+     else {
+-      $query->addField('p', 'points');
++      $query->addField('fdp', 'points_numerator');
+     }
+     $query->condition('uid', $uid);
+     if ($points) {
+-      $query->condition('points', $points);
++      $fraction = fraction_from_decimal($points);
++      $query->condition('fdp.points_numerator', $fraction->getNumerator());
++      $query->condition('fdp.points_denominator', $fraction->getDenominator());
+     }
+-    return (int)$query->execute()->fetchField();
++    $result = (int)$query->execute()->fetchField();
++    // Use Fraction to avoid rounding errors.
++    return fraction($result, 100)->toDecimal();
+   }
+ 
+   /**
+@@ -165,7 +183,7 @@ class UserpointsAPITestCase extends UserpointsBaseTestCase {
+     if ($points) {
+       $query->condition('points', $points);
+     }
+-    return (int) $query->execute()->fetchField();
++    return $query->execute()->fetchField();
+   }
+ 
+   function testExpiration() {
+@@ -199,7 +217,7 @@ class UserpointsAPITestCase extends UserpointsBaseTestCase {
+       $this->assertTrue((bool)$transaction->getTxnId(), t($time['string'] . " API responded with a successful grant of points"));
+       // Check the database to ensure the points were properly saved.
+       $sql = "SELECT points FROM {userpoints_txn} WHERE uid = :uid AND points = :points AND expirydate = :date";
+-      $db_points = (int) db_query($sql, array(':uid' => $this->non_admin_user->uid, ':points' => $points, ':date' => (int) $time['time']))->fetchField();
++      $db_points = db_query($sql, array(':uid' => $this->non_admin_user->uid, ':points' => $points, ':date' => (int) $time['time']))->fetchField();
+       $this->assertEqual($db_points, $points, t($time['string'] . "Successfully verified points in the txn table."));
+ 
+       $sum_points += $points;
+@@ -332,7 +350,7 @@ class UserpointsAPITestCase extends UserpointsBaseTestCase {
+   /**
+    * Test user permissions
+    */
+-  function testUserpermissions() {
++  function testUserPermissions() {
+     $this->non_admin_username = 'test';
+     $points = 10;
+ 
+@@ -483,7 +501,7 @@ class UserpointsAdminTestCase extends UserpointsBaseTestCase {
+    * Install userpoints module and create users.
+    */
+   function setUp() {
+-    parent::setUp('userpoints');
++    parent::setUp();
+ 
+     // Create an administrator account and log in with that.
+     $this->admin_user = $this->drupalCreateUser(array('administer userpoints'));
+@@ -499,7 +517,7 @@ class UserpointsAdminTestCase extends UserpointsBaseTestCase {
+     $category = $categories[$tid];
+ 
+     // Grant some points with admin user.
+-    $txn_id = $this->addPoints(10, $user, NULL, array('moderate' => 1));
++    $txn_id = $this->addPoints('10.23', $user, NULL, array('moderate' => 1));
+     $this->assertText(t('@user just earned @points points, pending administrator approval.', array('@user' => $user->name, '@points' => 10)));
+ 
+     // Go to the listing page, verify that the user is not shown yet, as the
+@@ -512,7 +530,7 @@ class UserpointsAdminTestCase extends UserpointsBaseTestCase {
+     $row = $this->xpath('//table/tbody/tr');
+     $transaction = userpoints_transaction_load($txn_id);
+     //$this->assertEqual(strip_tags((string)$row[0]->td[0]), $user->name, t('User correctly displayed.'));
+-    $this->assertEqual((string)$row[0]->td[1], 10, t('Points correctly displayed.'));
++    $this->assertEqual((string)$row[0]->td[1], '10.23', t('Points correctly displayed.'));
+     $this->assertEqual((string)$row[0]->td[2], format_date($transaction->time_stamp, 'small'), t('Date correctly displayed.'));
+     $this->assertEqual((string)$row[0]->td[3], 'admin', t('Reason correctly displayed.'));
+     $this->assertEqual((string)$row[0]->td[4], t('Pending'), t('Status correctly displayed.'));
+@@ -520,7 +538,7 @@ class UserpointsAdminTestCase extends UserpointsBaseTestCase {
+     $this->clickLink(t('edit'));
+ 
+     // Verify default values.
+-    $this->assertFieldByName('points', 10, t('Points default value is correct.'));
++    $this->assertFieldByName('points', '10.23', t('Points default value is correct.'));
+     $value = $this->xpath("//input[@name=:name and @disabled=:disabled]/@value", array(':name' => 'txn_user', ':disabled' => 'disabled'));
+     $this->assertEqual($value[0]['value'], $user->name, t('User field has the correct value and is disabled.'));
+     $this->assertFieldByName('approver', $this->admin_user->name);
+@@ -553,14 +571,12 @@ class UserpointsAdminTestCase extends UserpointsBaseTestCase {
+     // View transaction details.
+     $this->clickLink(t('Transactions'));
+     $this->clickLink('view');
+-
+-
+   }
+ }
+ 
+ 
+ /**
+- * API Tests.
++ * Tests for grand points functionality.
+  */
+ class UserpointsGrantPointsTestCase extends UserpointsBaseTestCase {
+ 
+@@ -582,7 +598,7 @@ class UserpointsGrantPointsTestCase extends UserpointsBaseTestCase {
+    * Install userpoints module and create users.
+    */
+   function setUp() {
+-    parent::setUp('userpoints');
++    parent::setUp();
+ 
+     // Create an administrator account.
+     $this->admin_user = $this->drupalCreateUser(array('administer userpoints'));
+@@ -596,11 +612,20 @@ class UserpointsGrantPointsTestCase extends UserpointsBaseTestCase {
+    * Test basic usage of the API to create and update transactions.
+    */
+   function testGrantPoints() {
+-    // Most basic usage, with automated saving.
++    // Most basic usage, positive decimal with automated saving.
++    // Amount is as usual string to avoid rounding errors.
++    userpoints_grant_points('test', '1.23', 'userpoints', $this->non_admin_user->uid)->save();
++    $this->verifyPoints($this->non_admin_user->uid, '1.23', '1.23');
++
++    // Negative decimal.
++    userpoints_grant_points('test', '-1.23', 'userpoints', $this->non_admin_user->uid)->save();
++    $this->verifyPoints($this->non_admin_user->uid, 0, '1.23');
++
++    // Positive integer.
+     userpoints_grant_points('test', 10, 'userpoints', $this->non_admin_user->uid)->save();
+     $this->verifyPoints($this->non_admin_user->uid, 10, 10);
+ 
+-    // Negative points, use of save().
++    // Negative integer, use of save().
+     userpoints_grant_points('test', -5, 'userpoints', $this->non_admin_user->uid)
+       ->save();
+     $this->verifyPoints($this->non_admin_user->uid, 5, 10);
+@@ -668,13 +693,6 @@ class UserpointsFieldsTestCase extends UserpointsBaseTestCase {
+     );
+   }
+ 
+-  /**
+-   * Implements setUp().
+-   */
+-  function setUp() {
+-    parent::setUp('userpoints');
+-  }
+-
+   function testSingleField() {
+     // Create an administrator account.
+     $admin = $this->drupalCreateUser(array('administer userpoints'));
+@@ -694,7 +712,7 @@ class UserpointsFieldsTestCase extends UserpointsBaseTestCase {
+     // Create transaction.
+     $message = array(
+       'txn_user' => $admin->name,
+-      'points' => 10,
++      'points' => '10.23',
+       'field_' . $name . '[' . LANGUAGE_NONE . '][0][value]' => $this->randomName(50),
+     );
+     $this->drupalPost('admin/config/people/userpoints/add', $message, t('Save'));
+diff --git a/userpoints.transaction.inc b/userpoints.transaction.inc
+index d902792..9061d2c 100644
+--- a/userpoints.transaction.inc
++++ b/userpoints.transaction.inc
+@@ -348,7 +348,7 @@ class UserpointsTransaction extends Entity {
+    * or negative amount but not 0.
+    *
+    * @param $points
+-   *   The points as an integer.
++   *   The points as a fraction array.
+    *
+    * @return UserpointsTransaction
+    */
+@@ -361,7 +361,13 @@ class UserpointsTransaction extends Entity {
+       throw new UserpointsInvalidArgumentException();
+     }
+ 
+-    $this->points = $points;
++    // Prepare data to be saved as a field.
++    $field_language = field_language($this->entityType, $this, 'points');
++    $fraction = fraction_from_decimal($points);
++    $this->points[$field_language][0] = array(
++      'numerator' => $fraction->getNumerator(),
++      'denominator' => $fraction->getDenominator(),
++    );
+     return $this;
+   }
+ 
+@@ -614,12 +620,18 @@ class UserpointsTransaction extends Entity {
+    * The amount of points of this transaction.
+    *
+    * @return
+-   *   Points as an integer.
++   *   Points as a string representing decimal.
+    *
+    * @see UserpointsTransaction::setPoints()
+    */
+   function getPoints() {
+-    return $this->points;
++    $points = '0';
++    $field_language = field_language($this->entityType, $this, 'points');
++    if (!empty($this->points[$field_language][0]['numerator']) && !empty($this->points[$field_language][0]['denominator'])) {
++      $fraction = fraction($this->points[$field_language][0]['numerator'], $this->points[$field_language][0]['denominator']);
++      $points = $fraction->toDecimal();
++    }
++    return $points;
+   }
+ 
+   /**
+@@ -1225,7 +1237,7 @@ class UserpointsTransactionController extends EntityAPIController {
+ 
+     // Update totals if the transaction is approved and not expired.
+     if ($entity->isApproved() && !$entity->isExpired()) {
+-      $this->updateTotals($entity->tid, $entity->uid, $entity->points);
++      $this->updateTotals($entity->tid, $entity->uid, $entity->getPoints());
+     }
+ 
+     // Display a message unless disabled or no message exists.
+@@ -1265,7 +1277,7 @@ class UserpointsTransactionController extends EntityAPIController {
+     // Always update the time stamp and the total points.
+     $total = array(
+       'last_update' => REQUEST_TIME,
+-      'points' => $points + userpoints_get_current_points($uid, $tid),
++      'points' => fraction_from_decimal($points)->add(fraction_from_decimal(userpoints_get_current_points($uid, $tid)))->toDecimal(),
+     );
+     // Update the total max points if necessary.
+     $max_points_total = userpoints_get_max_points($uid, $tid);
+@@ -1322,7 +1334,8 @@ class UserpointsTransactionMetadataController extends EntityDefaultMetadataContr
+     $properties['points_abs'] = array(
+       'label' => t('!Points absolute', userpoints_translation()),
+       'description' => t('The absolute (positive) amount of !points of this transaction.', userpoints_translation()),
+-      'type' => 'integer',
++      // Is string to avoid rounding errors.
++      'type' => 'text',
+       'getter callback' => 'userpoints_transaction_get_points_absolute',
+     );
+ 
+diff --git a/userpoints_rules/userpoints_rules.info b/userpoints_rules/userpoints_rules.info
+index d656d5b..3d8d898 100644
+--- a/userpoints_rules/userpoints_rules.info
++++ b/userpoints_rules/userpoints_rules.info
+@@ -7,4 +7,3 @@ package = Userpoints
+ core = 7.x
+ files[]=userpoints_rules.rules.inc
+ files[]=userpoints_rules.test
+-
+diff --git a/userpoints_rules/userpoints_rules.rules.inc b/userpoints_rules/userpoints_rules.rules.inc
+index ec203c3..3eff9f5 100644
+--- a/userpoints_rules/userpoints_rules.rules.inc
++++ b/userpoints_rules/userpoints_rules.rules.inc
+@@ -25,7 +25,7 @@ function userpoints_rules_rules_action_info() {
+           'description' => t('The user that will receive the !points', userpoints_translation()),
+         ),
+         'points' => array(
+-          'type' => 'integer',
++          'type' => 'text',
+           'label' => t('!Points', userpoints_translation()),
+           'description' => t('Amount of !points to give or take.', userpoints_translation()),
+         ),
+@@ -96,7 +96,7 @@ function userpoints_rules_rules_action_info() {
+       ),
+       'new variables' => array(
+         'loaded_points' => array(
+-          'type' => 'integer',
++          'type' => 'text',
+           'label' => t('Number of !points in the specified category.', userpoints_translation()),
+         ),
+       ),
+diff --git a/userpoints_service/userpoints_service.test b/userpoints_service/userpoints_service.test
+index dc09700..d5f9db0 100644
+--- a/userpoints_service/userpoints_service.test
++++ b/userpoints_service/userpoints_service.test
+@@ -101,8 +101,8 @@ class UserpointsServiceTestCase extends ServicesWebTestCase {
+ 
+     $result = $this->servicesGet($this->endpoint->path . '/userpoints');
+     $index = $result['body'];
+-    $this->assertEqual($index[0]->points, userpoints_get_current_points($index[0]->uid));
+-    $this->assertEqual($index[1]->points, userpoints_get_current_points($index[1]->uid));
++    $this->assertEqual($index[0]->getPoints(), userpoints_get_current_points($index[0]->uid));
++    $this->assertEqual($index[1]->getPoints(), userpoints_get_current_points($index[1]->uid));
+     $this->assertEqual($index[0]->max_points, userpoints_get_max_points($index[0]->uid));
+     $this->assertEqual($index[1]->max_points, userpoints_get_max_points($index[1]->uid));
+   }
+-- 
+1.7.9.5
+

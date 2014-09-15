@@ -26,13 +26,17 @@ function userpoints_schema() {
       ),
       'points' => array(
         'description' => 'Current Points',
-        'type' => 'int',
+        // Is stored as string in order to avoid rounding errors.
+        'type' => 'varchar',
+        'length' => 100,
         'not null' => TRUE,
         'default' => 0,
       ),
       'max_points' => array(
         'description' => 'Out of a maximum points',
-        'type' => 'int',
+        // Is stored as string in order to avoid rounding errors.
+        'type' => 'varchar',
+        'length' => 100,
         'not null' => TRUE,
         'default' => 0,
       ),
@@ -69,13 +73,17 @@ function userpoints_schema() {
       ),
       'points' => array(
         'description' => 'Current Points',
-        'type' => 'int',
+        // Is stored as string in order to avoid rounding errors.
+        'type' => 'varchar',
+        'length' => 100,
         'not null' => TRUE,
         'default' => 0,
       ),
       'max_points' => array(
         'description' => 'Out of a maximum points',
-        'type' => 'int',
+        // Is stored as string in order to avoid rounding errors.
+        'type' => 'varchar',
+        'length' => 100,
         'not null' => TRUE,
         'default' => 0,
       ),
@@ -119,12 +127,14 @@ function userpoints_schema() {
         'not null' => TRUE,
         'default' => 0,
       ),
+      /* Points are stored using Fraction field.
       'points' => array(
         'description' => 'Points',
         'type' => 'int',
         'not null' => TRUE,
         'default' => 0,
       ),
+       */
       'time_stamp' => array(
         'description' => 'Timestamp',
         'type' => 'int',
@@ -194,7 +204,6 @@ function userpoints_schema() {
         'type' => 'varchar',
         'length' => 48,
       ),
-
     ),
     'primary key' => array('txn_id'),
     'indexes' => array(
@@ -205,8 +214,7 @@ function userpoints_schema() {
       'changed' => array('changed'),
       'uid' => array('uid'),
       'approver_uid' => array('approver_uid'),
-      'points' => array('points'),
-    )
+    ),
   );
 
   $schema['userpoints_txn_type'] = array(
@@ -273,6 +281,21 @@ function userpoints_install() {
   catch (Exception $e) {
     watchdog_exception('userpoints', $e, 'Failed to create default bundle.', array(), WATCHDOG_CRITICAL);
   }
+
+  // Add fraction field to make it possible to work with decimals w/o rounding errors.
+  $instances_default = _userpoints_default_instances();
+  foreach (_userpoints_default_fields() as $field_name => $field_default) {
+    $field = field_info_field($field_name);
+    if (empty($field)) {
+      field_create_field($field_default);
+    }
+    if (!empty($instances_default[$field_name])) {
+      $instance = field_info_instance('userpoints_transaction', $field_name, 'userpoints');
+      if (empty($instance)) {
+        field_create_instance($instances_default[$field_name]);
+      }
+    }
+  }
 }
 
 /**
@@ -289,6 +312,42 @@ function userpoints_uninstall() {
   }
 
   variable_del('userpoints_default_bundle', 'userpoints');
+
+  // Delete fraction field and instance.
+  foreach (_userpoints_default_instances() as $instance) {
+    field_delete_instance($instance);
+  }
+  foreach (_userpoints_default_fields() as $field) {
+    field_delete_field($field['field_name']);
+  }
+}
+
+function _userpoints_default_fields() {
+  return array(
+    'points' => array(
+      'field_name' => 'points',
+      'type' => 'fraction',
+      'cardinality' => 1,
+      'entity_types' => array('userpoints_transaction'),
+      'translatable' => FALSE,
+    ),
+  );
+}
+
+function _userpoints_default_instances() {
+  return array(
+    'points' => array(
+      'field_name' => 'points',
+      'label' => t('Points'),
+      'type' => 'fraction',
+      'widget' => array(
+        'type' => 'fraction_decimal',
+      ),
+      'display' => array(),
+      'entity_type' => 'userpoints_transaction',
+      'bundle' => 'userpoints',
+    ),
+  );
 }
 
 /**
