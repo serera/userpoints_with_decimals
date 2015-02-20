@@ -24,6 +24,7 @@ class UserpointsTransaction extends Entity {
    * The transaction has been declined.
    */
   const STATUS_DECLINED = 2;
+
   /**
    * The transaction id (primary key) of this transaction
    *
@@ -626,9 +627,13 @@ class UserpointsTransaction extends Entity {
   function getPoints() {
     $points = '0';
     $field_language = field_language($this->entityType, $this, 'points');
+
     if (!empty($this->points[$field_language][0]['numerator']) && !empty($this->points[$field_language][0]['denominator'])) {
-      $fraction = fraction($this->points[$field_language][0]['numerator'], $this->points[$field_language][0]['denominator']);
-      $points = $fraction->toDecimal(USERPOINTS_CUSTOM_VAR_ACCURACY, TRUE);
+      $settings = userpoints_get_field_precision();
+      $points = fraction(
+        $this->points[$field_language][0]['numerator'],
+        $this->points[$field_language][0]['denominator']
+      )->toDecimal($settings['precision'], $settings['auto_precision']);
     }
     return $points;
   }
@@ -1272,11 +1277,14 @@ class UserpointsTransactionController extends EntityAPIController {
       // Use a different table for the overall total.
       $table = 'userpoints_total';
     }
+    $settings = userpoints_get_field_precision();
 
     // Always update the time stamp and the total points.
     $total = array(
       'last_update' => REQUEST_TIME,
-      'points' => fraction_from_decimal($points)->add(fraction_from_decimal(userpoints_get_current_points($uid, $tid)))->toDecimal(USERPOINTS_CUSTOM_VAR_ACCURACY,TRUE),
+      'points' => fraction_from_decimal($points)
+        ->add(fraction_from_decimal(userpoints_get_current_points($uid, $tid)))
+        ->toDecimal($settings['precision'], $settings['auto_precision']),
     );
     // Update the total max points if necessary.
     $max_points_total = userpoints_get_max_points($uid, $tid);

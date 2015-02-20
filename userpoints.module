@@ -25,10 +25,6 @@ define('USERPOINTS_CATEGORY_DEFAULT_VID', 'userpoints_category_default_vid');
 define('USERPOINTS_CATEGORY_DEFAULT_TID', 'userpoints_category_default_tid');
 define('USERPOINTS_CATEGORY_PROFILE_DISPLAY_TID', 'userpoints_category_profile_display_tid');
 define('USERPOINTS_TRANSACTION_TIMESTAMP', 'userpoints_transaction_timestamp');
-/**
- * The USERPOINTS_CUSTOM_VAR_ACCURACY used to set accuracy of toDecimal() function
- */
-define('USERPOINTS_CUSTOM_VAR_ACCURACY', 10);
 
 /**
  * Returns an array of common translation placeholders.
@@ -1466,6 +1462,23 @@ function userpoints_get_list_row($data) {
   $points = theme('userpoints_points', array('points' => $data->points));
   $row[] = array('data' => $points, 'align' => 'right');
   return $row;
+}
+
+/**
+ * Get the precision of points field.
+ *
+ * @return array
+ *   array with keys 'precision' and 'auto_precision'
+ */
+function userpoints_get_field_precision() {
+  $field_info = field_info_instance('userpoints_transaction', 'points', 'userpoints');
+  $settings = $field_info['widget']['settings'];
+  $precision = !empty($settings['precision']) ? $settings['precision'] : 0;
+  $auto_precision = !empty($settings['auto_precision']) ? TRUE : FALSE;
+  return array(
+    'precision' => $precision,
+    'auto_precision' => $auto_precision,
+  );
 }
 
 /**

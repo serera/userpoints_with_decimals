@@ -7,4 +7,3 @@ package = Userpoints
 core = 7.x
 files[]=userpoints_rules.rules.inc
 files[]=userpoints_rules.test
-
